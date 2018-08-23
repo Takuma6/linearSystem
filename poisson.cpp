@@ -18,7 +18,10 @@ int Ns[DIM];
 int &Nx=Ns[0];
 int &Ny=Ns[1];
 int n, m;
-double *eps, *phi, *phi_sum; 
+double Ext[DIM] = {1,0}; 
+const double dx=0.5;
+double *phi, *phi_sum; 
+double *eps, *bc_eps ;
 
 class electric_coefficient
 {
@@ -39,50 +42,83 @@ electric_coefficient::electric_coefficient()    //コンストラクタの定義
 }
 void electric_coefficient::print_value(){std::cout << eps_f << std::endl;}
 
-void input(int n1, int n2){
+/*
+void initialize(int n1, int n2, int &m){
   Ns[0] = 1<<n1;
   Ns[1] = 1<<n2;
+  m     = Nx*Ny;
+  phi   = new double [m];
+  for(int i=0; i<m; i++){phi[i]=0.0;}
 }
+*/
 
-void Make_epsilon(electric_coefficient *ep, double *eps, double *phi_sum){
+void Make_epsilon(electric_coefficient *ep){
   double eps_p = ep->eps_t;
-  #pragma omp parallel for
+  //#pragma omp parallel for
     for(int i = 0; i < Nx; i++){
       int im;
       for(int j = 0; j < Ny; j++){
         im = i * Ny + j;
-        eps[im] = ep->eps_f + (eps_p - ep->eps_f)*phi_sum[im];
+        eps[im] = ep->eps_f + (eps_p - ep->eps_f)*phi[im];
       }
     }
+}
+void Make_bc_eps(){
+  int im, im_bc;
+  int i , j    ;
+  for(int i_bc=0; i_bc<Nx+2; i_bc++){
+    for(int j_bc=0; j_bc<Ny+2; j_bc++){
+      i = (i_bc+Nx-1)%Nx;
+      j = (j_bc+Ny-1)%Ny;
+      im    = i   * Ny   +j   ;
+      im_bc = i_bc*(Ny+2)+j_bc;
+      bc_eps[im_bc] = eps[im] ;
+    }
+  }
+}
+
+void initialize(int n1, int n2, int &m, electric_coefficient *ep){
+  Ns[0] = 1<<n1;
+  Ns[1] = 1<<n2;
+  m     = Nx*Ny;
+  phi   = new double [m];
+  eps   = new double [m];
+  bc_eps= new double [(Nx+2)*(Ny+2)];
+  SimIO::SimIO fp_dmy;
+  fp_dmy.open_file("phi.h5", "r");
+  fp_dmy.read_data("phi", phi);
+  fp_dmy.close_file();
+  Make_epsilon(ep);
+  Make_bc_eps();
 }
 
 /*
 Functions for Poisson Eq.
 */
-inline void insertCoefficient(int id, int i, int j, double w, std::vector<T>& coeffs, Eigen::VectorXd& b){
-  int id1 = i*n+j;
-        if(i==-1 || i==Nx){
-        	i   = (i+Nx)%Nx;
-        	id1 =  i*Ny+j ;
-        }
-  else  if(j==-1 || j==Ny){
-    			j   = (j+Ny)%j;
-    			id1 =  i*Ny+j ;
-    		}
-  coeffs.push_back(T(id,id1,w));              // unknown coefficient
+inline void insertCoefficient(int id, int i, int j, double w, std::vector<T>& coeffs){
+  int i_star, j_star;
+  i_star = (i+Nx)%Nx;
+  j_star = (j+Ny)%Ny;
+  int id1 = i_star*Ny+j_star;
+  coeffs.push_back(T(id,id1,w/(2*dx*dx)));              // unknown coefficient
 }
 
 void buildProblem(std::vector<T>& coefficients, Eigen::VectorXd& b, int m){
-  //b.setZero();
-  b = Eigen::VectorXd::Random(m);
+  b.setZero();
+  //b = Eigen::VectorXd::Random(m);
   for(int i=0; i<Nx; i++){
     for(int j=0; j<Ny; j++){
-      int id = i*Ny+j;
-      insertCoefficient(id, i-1,j,   -1, coefficients, b);
-      insertCoefficient(id, i+1,j,   -1, coefficients, b);
-      insertCoefficient(id, i  ,j-1, -1, coefficients, b);
-      insertCoefficient(id, i  ,j+1, -1, coefficients, b);
-      insertCoefficient(id, i  ,j  ,  4, coefficients, b);
+      int id    = i*Ny+j;
+      int id_bc = (i+1)*(Ny+2)+(j+1);
+      b[id] = (bc_eps[id_bc+(Ny+2)] - bc_eps[id_bc-(Ny+2)])*Ext[0]/(2*dx)
+             +(bc_eps[id_bc+1     ] - bc_eps[id_bc-1     ])*Ext[1]/(2*dx);
+      insertCoefficient(id, i-1,j,     bc_eps[id_bc       ] + bc_eps[id_bc-(Ny+2)], coefficients);
+      insertCoefficient(id, i+1,j,     bc_eps[id_bc       ] + bc_eps[id_bc+(Ny+2)], coefficients);
+      insertCoefficient(id, i  ,j-1,   bc_eps[id_bc       ] + bc_eps[id_bc-1     ], coefficients);
+      insertCoefficient(id, i  ,j+1,   bc_eps[id_bc       ] + bc_eps[id_bc+1     ], coefficients);
+      insertCoefficient(id, i  ,j  , -(bc_eps[id_bc-(Ny+2)] + bc_eps[id_bc+(Ny+2)]
+                                     + bc_eps[id_bc-1     ] + bc_eps[id_bc+1     ]
+                                     + bc_eps[id_bc       ] * 4)                  , coefficients);
     }
   }
 }
@@ -98,12 +134,10 @@ void saveAsBitmap(const Eigen::VectorXd& x, int n, const char* filename){
 */
 
 int main(){
-  input(4, 5);
-  n = 1<<5   ;
-  m = Nx*Ny  ;  // number of unknows (=number of pixels)
-  //electric_coefficient *ep = new electric_coefficient;
+  electric_coefficient *ep = new electric_coefficient;
+  initialize(6, 6, m, ep);
   //ep->print_value();
-  //(*ep).print_values();
+  (*ep).print_value();
   /*
   // set phi, epsilon
   Reset_phi(phi);
@@ -131,17 +165,16 @@ int main(){
 	std::cout << "estimated error: " << gmres.error()      << std::endl;
 	// update b, and solve again
 	// x = solver.solve(b)
+  double *dmy = new double [m];
+  for(int i=0; i<m; i++)dmy[i]=x[i];
 
   // save to HDF5
-  double *dmy = new double [m];
-  for(int i=0; i<m; i++)dmy[i] = (double)x[i];
-
   SimIO::SimIO fp;
   fp.create_file("sample.h5");
-  fp.create_group("params");
+  fp.create_group("field");
   fp.write_attr("dt", 1);
-  SimIO::io_space vectorSpace = SimIO::Space::create(Nx, Ny);
-  fp.write_data("velocity", vectorSpace, dmy);
+  SimIO::io_space matrixSpace = SimIO::Space::create(Nx, Ny);
+  fp.write_data("potential", matrixSpace, dmy);
   fp.close_file();
 	return 0;
 }

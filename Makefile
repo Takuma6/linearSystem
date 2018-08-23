@@ -7,4 +7,4 @@ all:
 	$(CXX) -std=c++11 poisson.cpp -o poisson.out $(EIGEN_LINKS) $(HDF_LINKS)
 
 clean:
-	rm -f *~ *.out
+	rm -f *~ *.out sample.h5
