@@ -33,24 +33,14 @@ public:
 };
 electric_coefficient::electric_coefficient()    //コンストラクタの定義
 {
-  eps_f = 1 ;
-  eps_t = 10;
-  eps_b = 10;
+  eps_f = 2 ;
+  eps_t = 80;
+  eps_b = 80;
   sig_f = 1 ;
   sig_t = 1 ;
   sig_b = 1 ;
 }
 void electric_coefficient::print_value(){std::cout << eps_f << std::endl;}
-
-/*
-void initialize(int n1, int n2, int &m){
-  Ns[0] = 1<<n1;
-  Ns[1] = 1<<n2;
-  m     = Nx*Ny;
-  phi   = new double [m];
-  for(int i=0; i<m; i++){phi[i]=0.0;}
-}
-*/
 
 void Make_epsilon(electric_coefficient *ep){
   double eps_p = ep->eps_t;
@@ -63,6 +53,7 @@ void Make_epsilon(electric_coefficient *ep){
       }
     }
 }
+
 void Make_bc_eps(){
   int im, im_bc;
   int i , j    ;
@@ -96,10 +87,8 @@ void initialize(int n1, int n2, int &m, electric_coefficient *ep){
 Functions for Poisson Eq.
 */
 inline void insertCoefficient(int id, int i, int j, double w, std::vector<T>& coeffs){
-  int i_star, j_star;
-  i_star = (i+Nx)%Nx;
-  j_star = (j+Ny)%Ny;
-  int id1 = i_star*Ny+j_star;
+  int i_star = (i+Nx)%Nx        ;
+  int id1    = (i_star*Ny+j+m)%m;
   coeffs.push_back(T(id,id1,w/(2*dx*dx)));              // unknown coefficient
 }
 
@@ -158,8 +147,8 @@ int main(){
 	Eigen::GMRES<SpMat> gmres(A);
 	Eigen::VectorXd x;
   gmres.setMaxIterations(3000);
-  gmres.setTolerance(1e-5);
-  gmres.solveWithGuess(b, Eigen::VectorXd::Zero(m));
+  //gmres.setTolerance(1e-10);
+  //gmres.solveWithGuess(b, Eigen::VectorXd::Zero(m));
   x = gmres.solve(b);
 	std::cout << "#iterations:     " << gmres.iterations() << std::endl;
 	std::cout << "estimated error: " << gmres.error()      << std::endl;
